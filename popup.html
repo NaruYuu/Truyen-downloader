@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body { width: 400px; font-family: sans-serif; padding: 15px; background: #f9f9f9; }
+    h3 { margin-top: 0; color: #e84118; text-align: center; margin-bottom: 10px; }
+
+    label { font-size: 13px; font-weight: bold; display: block; margin-bottom: 5px; }
+    input[type="text"] { width: 100%; padding: 8px; margin-bottom: 10px; box-sizing: border-box; border: 1px solid #ddd; border-radius: 4px; }
+
+    /* Khu vực danh sách chương */
+    #chapterList {
+        height: 200px;
+        overflow-y: auto;
+        border: 1px solid #ccc;
+        background: white;
+        padding: 5px;
+        margin-bottom: 10px;
+        border-radius: 4px;
+    }
+    .chap-item { display: flex; align-items: center; padding: 3px 0; border-bottom: 1px solid #eee; }
+    .chap-item:last-child { border-bottom: none; }
+    .chap-item input { margin-right: 8px; }
+    .chap-item span { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    /* Nút bấm */
+    .btn-group { display: flex; gap: 5px; margin-bottom: 10px; }
+    button { flex: 1; padding: 8px; color: white; border: none; cursor: pointer; border-radius: 4px; font-weight: bold; font-size: 12px; }
+    #btnScan { background: #3498db; }
+    #btnDownload { background: #e84118; }
+    #btnToggle { background: #95a5a6; flex: 0.5; } /* Nút chọn tất cả */
+
+    /* Tiến trình */
+    #status { font-size: 11px; text-align: center; margin-top: 5px; color: #555; height: 30px; }
+    .progress { height: 6px; background: #ddd; border-radius: 3px; overflow: hidden; }
+    .bar { height: 100%; background: #2ecc71; width: 0%; transition: width 0.3s; }
+  </style>
+</head>
+<body>
+  <h3>TruyenQQ Crawler</h3>
+  
+  <label>Lưu vào thư mục:</label>
+  <input type="text" id="customFolder" placeholder="VD: D:\Truyen_Cua_Toi">
+
+  <div class="btn-group">
+      <button id="btnScan">1. QUÉT CHƯƠNG</button>
+      <button id="btnToggle">All</button>
+  </div>
+
+  <div id="chapterList">
+      <div style="text-align:center; padding-top: 80px; color:#999;">Chưa có dữ liệu</div>
+  </div>
+
+  <button id="btnDownload" disabled>2. TẢI CÁC CHƯƠNG ĐÃ CHỌN</button>
+  
+  <div class="progress"><div class="bar" id="progressBar"></div></div>
+  <div id="status">Vui lòng vào trang giới thiệu truyện</div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
