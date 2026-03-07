@@ -28,7 +28,7 @@ const SITE_CONFIG = {
 document.getElementById('btnScan').addEventListener('click', async () => {
     const status = document.getElementById('status');
     status.innerText = "Đang quét HTML...";
-    
+
     let [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
     // Luôn dùng scanChaptersSmartly (Quét HTML)
@@ -53,7 +53,7 @@ document.getElementById('btnScan').addEventListener('click', async () => {
 document.getElementById('btnDownload').addEventListener('click', async () => {
     const btn = document.getElementById('btnDownload');
     const status = document.getElementById('status');
-    
+
     let baseFolder = document.getElementById('customFolder').value.trim() || 'D:\\TruyenQQ_Download';
     const checkboxes = document.querySelectorAll('#chapterList input[type="checkbox"]:checked');
     const selectedChapters = Array.from(checkboxes).map(cb => scannedChapters[parseInt(cb.value)]);
@@ -63,7 +63,7 @@ document.getElementById('btnDownload').addEventListener('click', async () => {
     }
 
     let [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    
+
     // Lấy tên truyện từ H1
     const res = await chrome.scripting.executeScript({
         target: { tabId: tab.id },
@@ -73,6 +73,15 @@ document.getElementById('btnDownload').addEventListener('click', async () => {
         }
     });
     const mangaTitle = res[0].result;
+
+    // Lấy URL cơ bản
+    const baseLinkRes = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        func: () => {
+            return window.location.href;
+        }
+    });
+    const baseLink = baseLinkRes[0].result;
 
     status.innerText = "🚀 Đang tải ngầm...";
     status.style.color = "green";
@@ -84,6 +93,7 @@ document.getElementById('btnDownload').addEventListener('click', async () => {
         chapters: selectedChapters,
         baseFolder: baseFolder,
         mangaTitle: mangaTitle,
+        baseLink: baseLink, // Thêm URL cơ bản vào đây
         config: SITE_CONFIG
     });
 

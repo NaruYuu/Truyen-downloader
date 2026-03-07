@@ -58,13 +58,13 @@ async function getCookies(url) {
 // --- LOGIC CHÍNH ---
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.action === 'START_DOWNLOAD_QUEUE') {
-        processQueue(msg.chapters, msg.baseFolder, msg.mangaTitle, msg.config);
+        processQueue(msg.chapters, msg.baseFolder, msg.mangaTitle, msg.config, msg.baseLink); // Thêm baseLink vào đây
         sendResponse({status: "Started"});
     }
     return true; 
 });
 
-async function processQueue(chapters, baseFolder, mangaTitle, config) {
+async function processQueue(chapters, baseFolder, mangaTitle, config, baseLink) {
     console.log(`[Background] Bắt đầu tải ${chapters.length} chương...`);
     
     await setupParser();
@@ -110,6 +110,12 @@ async function processQueue(chapters, baseFolder, mangaTitle, config) {
 
                     const fullPath = `${baseFolder}\\${sanitize(mangaTitle)}\\${sanitize(chap.title)}\\${j + 1}.${ext}`;
                     await sendToLocalApp(url, fullPath, chap.url, currentCookies);
+
+                    // So sánh với server
+                    if (await checkIfFileExists(baseLink, chap, j + 1)) {
+                        console.log(`-> File đã tồn tại: ${fullPath}`);
+                        continue;
+                    }
                 }
             } else {
                 console.warn(`-> Chương trống: ${chap.title}`);
@@ -143,6 +149,22 @@ async function processQueue(chapters, baseFolder, mangaTitle, config) {
         });
     } else {
         console.log("⚠️ Không thể hiện thông báo (Thiếu quyền 'notifications' trong manifest)");
+    }
+}
+
+async function checkIfFileExists(baseLink, chap, chapterNumber) {
+    // Gọi API server để kiểm tra
+    try {
+        const response = await fetch(`${baseLink}/api/sync/check_file`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filePath: `${sanitize(chap.title)}/${chapterNumber}.jpg` })
+        });
+        if (!response.ok) throw new Error(`Server lỗi ${response.status}`);
+        return response.json().exists;
+    } catch (e) {
+        console.warn(`⚠️ Lỗi kiểm tra file: ${e.message}`);
+        return false;
     }
 }
 
