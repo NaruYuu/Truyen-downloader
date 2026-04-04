@@ -87,18 +87,37 @@ async function processQueue(chapters, baseFolder, mangaTitle, config, baseLink) 
                 await sleep(1000);
             }
 
-            const response = await fetch(chap.url);
-            const htmlText = await response.text();
-
-            // Gửi sang Offscreen (Timeout 10s cho chắc)
-            const imageUrls = await Promise.race([
-                chrome.runtime.sendMessage({
-                    action: 'PARSE_HTML', 
-                    html: htmlText, 
-                    config: config
-                }),
-                new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 10000))
-            ]);
+            let imageUrls = [];
+            if (chap.url && chap.url.startsWith('api://')) {
+                const [source, type, id] = chap.url.replace('api://', '').split('/');
+                if (source === 'moetruyen' && type === 'chapter') {
+                    imageUrls = await loadFromMoetruyenChapter(id);
+                } else {
+                    // fallback: nếu định dạng khác vẫn parse bằng DOM
+                    const response = await fetch(chap.url.replace('api://', 'https://'));
+                    const htmlText = await response.text();
+                    imageUrls = await Promise.race([
+                        chrome.runtime.sendMessage({
+                            action: 'PARSE_HTML', 
+                            html: htmlText, 
+                            config: config
+                        }),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 10000))
+                    ]);
+                }
+            } else {
+                const response = await fetch(chap.url);
+                const htmlText = await response.text();
+                // Gửi sang Offscreen (Timeout 10s cho chắc)
+                imageUrls = await Promise.race([
+                    chrome.runtime.sendMessage({
+                        action: 'PARSE_HTML', 
+                        html: htmlText, 
+                        config: config
+                    }),
+                    new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 10000))
+                ]);
+            }
 
             if (imageUrls && Array.isArray(imageUrls) && imageUrls.length > 0) {
                 console.log(`-> Tìm thấy ${imageUrls.length} ảnh.`);
@@ -109,7 +128,7 @@ async function processQueue(chapters, baseFolder, mangaTitle, config, baseLink) 
                     if (ext.length > 4) ext = 'jpg';
 
                     const fullPath = `${baseFolder}\\${sanitize(mangaTitle)}\\${sanitize(chap.title)}\\${j + 1}.${ext}`;
-                    await sendToLocalApp(url, fullPath, chap.url, currentCookies);
+                    await sendToLocalApp(url, fullPath, chap.url, currentCookies, mangaTitle, chap.title, j + 1);
 
                     // So sánh với server
                     if (await checkIfFileExists(baseLink, chap, j + 1)) {
@@ -168,12 +187,25 @@ async function checkIfFileExists(baseLink, chap, chapterNumber) {
     }
 }
 
-async function sendToLocalApp(imageUrl, savePath, referer, cookies) {
+async function loadFromMoetruyenChapter(chapterId) {
+    try {
+        const r = await fetch(`https://api.moetruyen.net/v1/chapters/${chapterId}/images`);
+        if (!r.ok) throw new Error(`Lỗi API moe ${r.status}`);
+        const j = await r.json();
+        // cấu trúc dãy image phụ thuộc API thực tế; điều chỉnh nếu cần
+        return (j.images || j.data || []).map(i => i.url || i);
+    } catch (e) {
+        console.warn('⚠️ Lỗi loadFromMoetruyenChapter:', e.message);
+        return [];
+    }
+}
+
+async function sendToLocalApp(imageUrl, savePath, referer, cookies, mangaTitle, chapterTitle, pageIndex) {
     try {
         const res = await fetch('http://127.0.0.1:3000/download', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ imageUrl, savePath, referer, cookies })
+            body: JSON.stringify({ imageUrl, savePath, referer, cookies, mangaTitle, chapterTitle, pageIndex })
         });
         if (!res.ok) throw new Error(`Server lỗi ${res.status}`);
     } catch (e) {
@@ -183,5 +215,14 @@ async function sendToLocalApp(imageUrl, savePath, referer, cookies) {
 
 function sanitize(name) {
     if (!name) return "Unknown";
-    return name.replace(/[\\/:*?"<>|]/g, '-').trim();
+    let clean = name
+        .replace(/[\\/:*?"<>|]+/g, '-')   // invalid Windows chars
+        .replace(/[\u0000-\u001F\u007F]+/g, '-')
+        .replace(/\s+/g, ' ')               // normalize spaces
+        .replace(/\.+$/g, '')               // remove trailing dots
+        .trim();
+
+    if (!clean) return "Unknown";
+    if (clean.length > 128) clean = clean.slice(0, 128).trim();
+    return clean;
 }
