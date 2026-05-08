@@ -45,6 +45,55 @@ async function setupParser() {
 }
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const LOCAL_APP_BASE = 'http://127.0.0.1:3000';
+const STORAGE_KEY_DOWNLOAD_QUEUE = 'lastDownloadSelection';
+
+async function saveDownloadCommand(chapters, baseFolder, mangaTitle, baseLink) {
+    try {
+        await chrome.storage.local.set({
+            [STORAGE_KEY_DOWNLOAD_QUEUE]: {
+                mangaTitle,
+                baseFolder,
+                baseLink,
+                chapters,
+                timestamp: Date.now()
+            }
+        });
+    } catch (e) {
+        console.warn('Lỗi lưu truyện tải xuống:', e);
+    }
+}
+
+async function localFileExists(savePath) {
+    try {
+        const response = await fetch(`${LOCAL_APP_BASE}/api/sync/check_file`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ savePath })
+        });
+        if (!response.ok) return false;
+        const data = await response.json();
+        return data.exists === true;
+    } catch (e) {
+        console.warn(`⚠️ Lỗi kiểm tra file cục bộ: ${e.message}`);
+        return false;
+    }
+}
+
+async function retrySaveFile(imageUrl, savePath, referer, cookies, mangaTitle, chapterTitle, pageIndex, maxAttempts = 3) {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            await sendToLocalApp(imageUrl, savePath, referer, cookies, mangaTitle, chapterTitle, pageIndex);
+            const exists = await localFileExists(savePath);
+            if (exists) return true;
+            throw new Error('File vẫn chưa tồn tại sau khi gửi');
+        } catch (e) {
+            console.warn(`⚠️ Thử lại lưu file (${attempt}/${maxAttempts}) ${savePath}: ${e.message}`);
+            await sleep(2000);
+        }
+    }
+    return false;
+}
 
 // --- LẤY COOKIE ---
 async function getCookies(url) {
@@ -66,6 +115,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
 async function processQueue(chapters, baseFolder, mangaTitle, config, baseLink) {
     console.log(`[Background] Bắt đầu tải ${chapters.length} chương...`);
+    await saveDownloadCommand(chapters, baseFolder, mangaTitle, baseLink);
     
     await setupParser();
     await sleep(1000);
@@ -121,20 +171,45 @@ async function processQueue(chapters, baseFolder, mangaTitle, config, baseLink) 
 
             if (imageUrls && Array.isArray(imageUrls) && imageUrls.length > 0) {
                 console.log(`-> Tìm thấy ${imageUrls.length} ảnh.`);
-                for (let j = 0; j < imageUrls.length; j++) {
-                    const url = imageUrls[j];
-                    let ext = 'jpg';
-                    try { ext = url.split('.').pop().split('?')[0] || 'jpg'; } catch(e){}
-                    if (ext.length > 4) ext = 'jpg';
+                const chapterFolder = `${baseFolder}\\${sanitize(mangaTitle)}\\${sanitize(chap.title)}`;
+                let chapterOk = false;
+                const maxChapterAttempts = 3;
 
-                    const fullPath = `${baseFolder}\\${sanitize(mangaTitle)}\\${sanitize(chap.title)}\\${j + 1}.${ext}`;
-                    await sendToLocalApp(url, fullPath, chap.url, currentCookies, mangaTitle, chap.title, j + 1);
+                for (let attempt = 1; attempt <= maxChapterAttempts; attempt++) {
+                    const missingPages = [];
 
-                    // So sánh với server
-                    if (await checkIfFileExists(baseLink, chap, j + 1)) {
-                        console.log(`-> File đã tồn tại: ${fullPath}`);
-                        continue;
+                    for (let j = 0; j < imageUrls.length; j++) {
+                        const url = imageUrls[j];
+                        let ext = 'jpg';
+                        try { ext = url.split('.').pop().split('?')[0] || 'jpg'; } catch(e){}
+                        if (ext.length > 4) ext = 'jpg';
+
+                        const fullPath = `${chapterFolder}\\${j + 1}.${ext}`;
+                        if (await localFileExists(fullPath)) continue;
+                        missingPages.push({ url, fullPath, pageIndex: j + 1 });
                     }
+
+                    if (missingPages.length === 0) {
+                        chapterOk = true;
+                        console.log(`✅ Chương hoàn chỉnh: ${chap.title}`);
+                        break;
+                    }
+
+                    console.warn(`⚠️ Chương còn ${missingPages.length} ảnh thiếu (lần ${attempt}/${maxChapterAttempts}), đang tải lại chương...`);
+                    for (const page of missingPages) {
+                        const saved = await retrySaveFile(page.url, page.fullPath, chap.url, currentCookies, mangaTitle, chap.title, page.pageIndex);
+                        if (!saved) {
+                            console.warn(`⚠️ Vẫn thiếu ảnh: ${page.fullPath}`);
+                        }
+                    }
+
+                    if (attempt < maxChapterAttempts) {
+                        await sleep(1500);
+                    }
+                }
+
+                if (!chapterOk) {
+                    console.error(`❌ Chương vẫn thiếu file sau ${maxChapterAttempts} lần thử: ${chap.title}`);
                 }
             } else {
                 console.warn(`-> Chương trống: ${chap.title}`);
@@ -171,21 +246,6 @@ async function processQueue(chapters, baseFolder, mangaTitle, config, baseLink) 
     }
 }
 
-async function checkIfFileExists(baseLink, chap, chapterNumber) {
-    // Gọi API server để kiểm tra
-    try {
-        const response = await fetch(`${baseLink}/api/sync/check_file`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ filePath: `${sanitize(chap.title)}/${chapterNumber}.jpg` })
-        });
-        if (!response.ok) throw new Error(`Server lỗi ${response.status}`);
-        return response.json().exists;
-    } catch (e) {
-        console.warn(`⚠️ Lỗi kiểm tra file: ${e.message}`);
-        return false;
-    }
-}
 
 async function loadFromMoetruyenChapter(chapterId) {
     try {
@@ -208,8 +268,10 @@ async function sendToLocalApp(imageUrl, savePath, referer, cookies, mangaTitle, 
             body: JSON.stringify({ imageUrl, savePath, referer, cookies, mangaTitle, chapterTitle, pageIndex })
         });
         if (!res.ok) throw new Error(`Server lỗi ${res.status}`);
+        return true;
     } catch (e) {
         console.warn(`⚠️ Lỗi gửi Server: ${e.message}`);
+        return false;
     }
 }
 

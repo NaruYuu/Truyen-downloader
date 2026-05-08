@@ -319,6 +319,21 @@ document.getElementById('btnDownload').addEventListener('click', async () => {
     status.style.color = "green";
     btn.disabled = true;
 
+    // Lưu lại danh sách chương đã chọn để có thể kiểm tra / tải lại khi thiếu file
+    try {
+        chrome.storage.local.set({
+            lastDownloadSelection: {
+                mangaTitle,
+                baseFolder,
+                baseLink,
+                chapters: selectedChapters,
+                timestamp: Date.now()
+            }
+        });
+    } catch (e) {
+        console.warn('Không lưu được danh sách chương:', e);
+    }
+
     // Gửi lệnh xuống Background
     chrome.runtime.sendMessage({
         action: 'START_DOWNLOAD_QUEUE',
