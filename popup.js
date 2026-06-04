@@ -206,6 +206,47 @@ const SITE_API_CONFIG = {
                 return [];
             }
         }
+    },
+    'cuutruyen.net': {
+        getSeriesId: (url) => {
+            // https://cuutruyen.net/mangas/481/chapters/87569
+            let m = url.match(/\/mangas\/(\d+)/i);
+            return m ? m[1] : null;
+        },
+        getMangaInfo: async (url) => {
+            try {
+                if (!isCuutruyenUrl(url)) return null;
+                
+                // Try HTML parsing to get chapter list
+                const mangaUrl = url.replace(/\/chapters\/[^\/?#]+.*$/, '');
+                const doc = await fetchDocument(mangaUrl);
+
+                // Get title
+                const titleElem = doc.querySelector('h1, .manga-title, [data-v-04c87aa0] a');
+                const title = (titleElem?.textContent || '').trim() || 'Unknown Manga';
+
+                // Get chapters
+                const chapters = extractCuutruyenChapterLinks(doc, mangaUrl);
+                if (!chapters || chapters.length === 0) {
+                    throw new Error('No chapters found');
+                }
+
+                // Get cover
+                const cover = doc.querySelector('meta[property="og:image"]')?.content || null;
+
+                return {
+                    title,
+                    cover,
+                    chapters: chapters.map(ch => ({
+                        title: ch.title,
+                        url: ch.url
+                    }))
+                };
+            } catch (e) {
+                console.warn('Cuutruyen getMangaInfo failed:', e.message);
+                return null;
+            }
+        }
     }
 };
 

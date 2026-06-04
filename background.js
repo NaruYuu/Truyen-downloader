@@ -138,7 +138,12 @@ async function processQueue(chapters, baseFolder, mangaTitle, config, baseLink) 
             }
 
             let imageUrls = [];
-            if (chap.url && chap.url.startsWith('api://')) {
+            
+            // Handle cuutruyen chapters
+            if (chap.url && chap.url.includes('cuutruyen.net')) {
+                console.log('[Cuutruyen] Processing chapter:', chap.url);
+                imageUrls = await loadFromCuutruyenChapter(chap.url);
+            } else if (chap.url && chap.url.startsWith('api://')) {
                 const [source, type, id] = chap.url.replace('api://', '').split('/');
                 if (source === 'moetruyen' && type === 'chapter') {
                     imageUrls = await loadFromMoetruyenChapter(id);
@@ -256,6 +261,52 @@ async function loadFromMoetruyenChapter(chapterId) {
         return (j.images || j.data || []).map(i => i.url || i);
     } catch (e) {
         console.warn('⚠️ Lỗi loadFromMoetruyenChapter:', e.message);
+        return [];
+    }
+}
+
+async function loadFromCuutruyenChapter(chapterUrl) {
+    try {
+        console.log('[Cuutruyen] Loading chapter:', chapterUrl);
+        const response = await fetch(chapterUrl);
+        if (!response.ok) throw new Error(`Lỗi fetch chapter ${response.status}`);
+        const html = await response.text();
+        
+        // Extract page IDs from HTML
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        const pageElements = doc.querySelectorAll('[data-id]');
+        const pageIds = [];
+        
+        for (const elem of pageElements) {
+            const id = elem.getAttribute('data-id');
+            const index = elem.getAttribute('data-index');
+            if (id && index !== null) {
+                pageIds.push({
+                    id,
+                    index: parseInt(index) || 0
+                });
+            }
+        }
+        
+        if (pageIds.length === 0) {
+            console.warn('[Cuutruyen] No pages found');
+            return [];
+        }
+        
+        // Sort by index and extract URLs
+        pageIds.sort((a, b) => a.index - b.index);
+        const imageUrls = [];
+        
+        for (const page of pageIds) {
+            // Try to get image URL from storage CDN
+            const imageUrl = `https://storage-ct.lrclib.net/file/cuutruyen/images/${page.id}.jpg`;
+            imageUrls.push(imageUrl);
+        }
+        
+        console.log(`[Cuutruyen] Found ${imageUrls.length} images`);
+        return imageUrls;
+    } catch (e) {
+        console.warn('⚠️ Lỗi loadFromCuutruyenChapter:', e.message);
         return [];
     }
 }
